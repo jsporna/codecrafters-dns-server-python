@@ -1,5 +1,17 @@
-import socket
+import dataclasses
+from dataclasses import dataclass
 import asyncio
+import struct
+
+
+@dataclass
+class DNSHeader:
+    id: int
+    flags: int
+    qdcount: int = 0
+    ancount: int = 0
+    nscount: int = 0
+    arcount: int = 0
 
 
 class DNSServerProtocol:
@@ -9,8 +21,9 @@ class DNSServerProtocol:
     def datagram_received(self, data, addr):
         # message = data.decode()
         print(f'Received {data} from {addr}')
-        # print(f'Send {message} to {addr}')
-        self.transport.sendto(data, addr)
+        header = DNSHeader(1234, 0x8000, 0, 0, 0, 0)
+        response = struct.pack("!HHHHHH", *dataclasses.astuple(header))
+        self.transport.sendto(response, addr)
 
 
 async def main():
