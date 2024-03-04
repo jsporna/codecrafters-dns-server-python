@@ -11,6 +11,7 @@ def _encode_name(data: str) -> bytes:
         encoded += bytes([len(part)]) + part
     return encoded + b"\x00"
 
+
 def _decode_name(data: bytes) -> str:
         parts = []
         start = 1
@@ -26,6 +27,7 @@ def _decode_name(data: bytes) -> str:
 
 
 class Type_(Enum):
+    ALL = 0
     A = 1
     NS = 2
     MD = 3
@@ -45,6 +47,7 @@ class Type_(Enum):
 
 
 class Class_(Enum):
+    ANY = 0
     IN = 1
     CS = 2
     CH = 3
@@ -52,20 +55,53 @@ class Class_(Enum):
 
 
 @dataclass
+class Flags:
+    qr: int
+    opcode: int
+    aa: int
+    tc: int
+    rd: int
+    ra: int
+    z: int
+    rcode: int
+
+    def __init__(self, flags: int):
+        self.qr = (flags >> 15) & 1
+        self.opcode = (flags >> 11) & 0b111
+        self.aa = (flags >> 10) & 1
+        self.tc = (flags >> 9) & 1
+        self.rd = (flags >> 8) & 1
+        self.ra = (flags >> 7) & 1
+        self.z = (flags >> 4) & 0b111
+        self.rcode = (flags >> 0) & 0b1111
+
+    def to_int(self):
+        return (self.qr * 0x8000 +
+                self.opcode * 0x0800 +
+                self.aa * 0x0400 +
+                self.tc * 0x0200 +
+                self.rd * 0x0100 +
+                self.ra * 0x0080 +
+                self.z * 0x0010 +
+                self.rcode)
+
+
+@dataclass
 class DNSHeader:
     id: int
-    flags: int
+    flags: Flags
     qdcount: int = 0
     ancount: int = 0
     nscount: int = 0
     arcount: int = 0
 
     def __init__(self, data):
-        self.id, self.flags, self.qdcount, self.ancount, self.nscount, self.arcount = struct.unpack("!HHHHHH", data)
+        self.id, flags_, self.qdcount, self.ancount, self.nscount, self.arcount = struct.unpack("!HHHHHH", data)
+        self.flags = Flags(flags_)
 
     def to_bytes(self):
         return struct.pack("!HHHHHH",
-                           self.id, self.flags,
+                           self.id, self.flags.to_int(),
                            self.qdcount, self.ancount, self.nscount, self.arcount)
 
 
@@ -78,8 +114,8 @@ class ResourceRecord:
     data: str = ""
 
     def to_bytes(self):
-        return _encode_name(self.name) + struct.pack("!HHI", self.type_,
-                                                     self.class_, self.ttl)
+        return _encode_name(self.name) + struct.pack("!HHI", self.type_.value,
+                                                     self.class_.value, self.ttl)
 
 
 class RecordA(ResourceRecord):
@@ -115,11 +151,12 @@ class DNSQuestion:
 
     def __init__(self, data: bytes):
         self.name = _decode_name(data[:-4])
-        self.type_, self.class_ = struct.unpack("!HH", data[-4:])
+        type_, class_ = struct.unpack("!HH", data[-4:])
+        self.type_, self.class_ = Type_(type_), Class_(class_)
 
     def to_bytes(self):
         return (_encode_name(self.name) +
-                struct.pack("!HH", self.type_, self.class_))
+                struct.pack("!HH", self.type_.value, self.class_.value))
 
 
 @dataclass
@@ -135,7 +172,11 @@ class DNSPacket:
         self.header.ancount = len(self.answers)
         self.header.nscount = len(self.authorities)
         self.header.arcount = len(self.additionals)
-        self.header.flags |= 0x8000
+        self.header.flags.qr = 1
+        if self.header.flags.opcode == 0:
+            self.header.flags.rcode = 0
+        else:
+            self.header.flags.rcode = 4
         packet = self.header.to_bytes()
         for rr in self.questions:
             packet += rr.to_bytes()
@@ -159,6 +200,9 @@ class DNSServerProtocol:
         question = DNSQuestion(data[12:])
         answer = RecordA(question.name, question.type_, question.class_, ttl=60, data="8.8.8.8")
         packet = DNSPacket(header, [question], [answer], [], [])
+        print(packet.header)
+        print(packet.header.flags)
+
         print(f'Sending {packet.to_bytes()} to {addr}')
         self.transport.sendto(packet.to_bytes(), addr)
 
