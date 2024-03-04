@@ -1,26 +1,33 @@
 import socket
+import asyncio
 
 
-def main():
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
+class DNSServerProtocol:
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        # message = data.decode()
+        print(f'Received {data} from {addr}')
+        # print(f'Send {message} to {addr}')
+        self.transport.sendto(data, addr)
+
+
+async def main():
     print("Logs from your program will appear here!")
 
-    # Uncomment this block to pass the first stage
-    #
-    # udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # udp_socket.bind(("127.0.0.1", 2053))
-    #
-    # while True:
-    #     try:
-    #         buf, source = udp_socket.recvfrom(512)
-    #
-    #         response = b""
-    #
-    #         udp_socket.sendto(response, source)
-    #     except Exception as e:
-    #         print(f"Error receiving data: {e}")
-    #         break
+    loop = asyncio.get_running_loop()
+
+    transport, protocol = await loop.create_datagram_endpoint(
+        lambda: DNSServerProtocol(),
+        local_addr=('127.0.0.1', 2053)
+    )
+
+    try:
+        await asyncio.sleep(3600)
+    finally:
+        transport.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
